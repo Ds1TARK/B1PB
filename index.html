@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventario de Artículos</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f7f9fc;
+            color: #333;
+        }
+
+        .header-background {
+            background-image: url('/mnt/data/as.jpg');
+            background-size: cover;
+            background-position: center;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        h1 {
+            color: #0056b3;
+            text-align: center;
+            margin: 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            color: #333;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #0056b3;
+            color: white;
+        }
+
+        input[type="number"] {
+            width: 80px;
+            background-color: #e9f5ff;
+            color: #333;
+            border: 1px solid #ccc;
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        button {
+            margin: 5px;
+            padding: 8px 12px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .action-buttons {
+            text-align: center;
+            margin-top: 15px;
+        }
+
+        .action-buttons button {
+            width: 120px;
+        }
+
+        .icon {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header-background">
+        <h1>Gestión de Artículos</h1>
+    </div>
+
+    <form id="itemForm">
+        <label for="itemInput">Ingrese Artículos (código, artículo, cantidad en sistema, cantidad en físico):</label>
+        <textarea id="itemInput" rows="4" required></textarea>
+        <button type="submit"><i class="fas fa-plus icon"></i>Agregar Artículos</button>
+    </form>
+
+    <div class="action-buttons">
+        <input type="file" id="excelInput" accept=".xlsx" />
+        <button onclick="importExcel()"><i class="fas fa-file-import icon"></i>Importar desde Excel</button>
+        <button onclick="exportToExcel()"><i class="fas fa-file-export icon"></i>Exportar a Excel</button>
+        <button onclick="clearTable()"><i class="fas fa-trash-alt icon"></i>Limpiar Datos</button>
+        <button onclick="sendToTelegram()"><i class="fas fa-paper-plane icon"></i>Enviar a Telegram</button>
+        <button onclick="loadGoogleSheetsData()"><i class="fas fa-sync icon"></i>Cargar desde Google Sheets</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Código</th>
+                <th>Artículo</th>
+                <th>Cantidad en Sistema</th>
+                <th>Cantidad en Físico</th>
+            </tr>
+        </thead>
+        <tbody id="itemList">
+            <!-- Los artículos se agregarán aquí -->
+        </tbody>
+    </table>
+
+    <script>
+        // Token de tu Bot de Telegram
+        const token = '7858773010:AAF3NfqFHkMTz446FjvdynGYxNAgzzQTnZg'; // Este es tu token
+        const chatId = '5712491335'; // Este es tu chat ID
+
+        document.getElementById('itemForm').addEventListener('submit', function (event) {
+            event.preventDefault();
+            const itemInput = document.getElementById('itemInput').value;
+            const items = itemInput.split('\n');
+
+            items.forEach(item => {
+                const [code, name, quantitySystem, quantityPhysical] = item.split(',').map(i => i.trim());
+                if (code && name && quantitySystem && quantityPhysical) {
+                    addItemToTable(code, name, quantitySystem, quantityPhysical);
+                }
+            });
+
+            document.getElementById('itemForm').reset();
+            saveDataToLocalStorage();
+        });
+
+        function addItemToTable(code, name, quantitySystem, quantityPhysical) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${code}</td>
+                <td>${name}</td>
+                <td><input type="number" value="${quantitySystem}" min="0" readonly></td> <!-- Solo lectura -->
+                <td><input type="number" value="${quantityPhysical}" min="0"></td> <!-- Editable -->
+            `;
+            document.getElementById('itemList').appendChild(row);
+        }
+
+        function saveDataToLocalStorage() {
+            const rows = Array.from(document.querySelectorAll('#itemList tr')).map(row => {
+                const cells = row.querySelectorAll('td');
+                return {
+                    code: cells[0].textContent,
+                    name: cells[1].textContent,
+                    quantitySystem: cells[2].querySelector('input').value,
+                    quantityPhysical: cells[3].querySelector('input').value
+                };
+            });
+            localStorage.setItem('inventoryData', JSON.stringify(rows));
+        }
+
+        function loadDataFromLocalStorage() {
+            const data = JSON.parse(localStorage.getItem('inventoryData') || '[]');
+            data.forEach(item => {
+                addItemToTable(item.code, item.name, item.quantitySystem, item.quantityPhysical);
+            });
+        }
+
+        function importExcel() {
+            const fileInput = document.getElementById('excelInput');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert("Por favor, selecciona un archivo Excel.");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+
+                json.forEach(row => {
+                    if (row.length >= 4) {
+                        const [code, name, quantitySystem, quantityPhysical] = row.map(cell => cell ? cell.toString().trim() : "");
+                        if (code && name && quantitySystem && quantityPhysical) {
+                            addItemToTable(code, name, quantitySystem, quantityPhysical);
+                        }
+                    }
+                });
+                saveDataToLocalStorage();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function exportToExcel() {
+            const rows = Array.from(document.querySelectorAll('#itemList tr')).map(row => {
+                const cells = row.querySelectorAll('td');
+                const quantitySystem = cells[2].querySelector('input').value;
+                const quantityPhysical = cells[3].querySelector('input').value;
+                const difference = quantityPhysical - quantitySystem; // Calculamos la diferencia
+                return [
+                    cells[0].textContent,
+                    cells[1].textContent,
+                    quantitySystem,
+                    quantityPhysical,
+                    difference // Agregamos la diferencia
+                ];
+            });
+
+            const worksheet = XLSX.utils.aoa_to_sheet([["Código", "Artículo", "Cantidad en Sistema", "Cantidad en Físico", "Diferencia"], ...rows]);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Inventario");
+
+            const excelFile = XLSX.write(workbook, { bookType: "xlsx", type: "binary" });
+
+            const blob = new Blob([s2ab(excelFile)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+            const fileName = 'inventario_articulos.xlsx';
+
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = fileName;
+            link.click();
+        }
+
+        function s2ab(s) {
+            const buf = new ArrayBuffer(s.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < s.length; i++) {
+                view[i] = s.charCodeAt(i) & 0xFF;
+            }
+            return buf;
+        }
+
+        function sendToTelegram() {
+            const rows = Array.from(document.querySelectorAll('#itemList tr')).map(row => {
+                const cells = row.querySelectorAll('td');
+                const quantitySystem = cells[2].querySelector('input').value;
+                const quantityPhysical = cells[3].querySelector('input').value;
+                const difference = quantityPhysical - quantitySystem; // Calculamos la diferencia
+                return {
+                    code: cells[0].textContent,
+                    name: cells[1].textContent,
+                    quantitySystem: quantitySystem,
+                    quantityPhysical: quantityPhysical,
+                    difference: difference
+                };
+            });
+
+            const rowsExcel = rows.map(item => [
+                item.code,
+                item.name,
+                item.quantitySystem,
+                item.quantityPhysical,
+                item.difference // Incluimos la diferencia
+            ]);
+
+            const worksheet = XLSX.utils.aoa_to_sheet([["Código", "Artículo", "Cantidad en Sistema", "Cantidad en Físico", "Diferencia"], ...rowsExcel]);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Inventario");
+
+            const excelFile = XLSX.write(workbook, { bookType: "xlsx", type: "binary" });
+            const blob = new Blob([s2ab(excelFile)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+
+            const formData = new FormData();
+            formData.append("file", blob, "inventario_articulos.xlsx");
+
+            const telegramUrl = `https://api.telegram.org/bot${token}/sendDocument`;
+            formData.append("chat_id", chatId);
+            formData.append("document", blob, "inventario_articulos.xlsx");
+
+            fetch(telegramUrl, {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(result => {
+                alert("Archivo enviado a Telegram");
+            })
+            .catch(error => {
+                alert("Error al enviar el archivo a Telegram: " + error);
+            });
+        }
+
+        function clearTable() {
+            document.getElementById('itemList').innerHTML = '';
+            localStorage.removeItem('inventoryData');
+        }
+
+        async function loadGoogleSheetsData() {
+            const apiKey = 'AIzaSyB8jZxcuFvLvf2CjVjVhT6hLRUw3Gk-8jk'; // Tu API Key
+            const spreadsheetId = '1QVYqsPy559Mo2f-iqImH4wtcW-vDY-pBFeXrOMDh2i0'; // ID de la hoja de cálculo
+            const range = 'B1PB!A:D'; // Nombre de la hoja actualizado
+
+            const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                console.log(data); // Imprime la respuesta para verificar
+
+                if (data.values) {
+                    // Limpiar la tabla antes de cargar nuevos datos
+                    document.getElementById('itemList').innerHTML = '';
+
+                    // Agregar los datos de Google Sheets a la tabla
+                    data.values.forEach(row => {
+                        const [code, name, quantitySystem, quantityPhysical] = row.map(cell => cell.trim());
+                        if (code && name && quantitySystem && quantityPhysical) {
+                            addItemToTable(code, name, quantitySystem, quantityPhysical);
+                        }
+                    });
+                } else {
+                    alert('No se pudieron cargar los datos de Google Sheets.');
+                }
+            } catch (error) {
+                console.error('Error al cargar datos de Google Sheets:', error);
+                alert('Hubo un error al intentar cargar los datos desde Google Sheets.');
+            }
+        }
+
+        window.onload = loadDataFromLocalStorage;
+    </script>
+</body>
+
+</html>

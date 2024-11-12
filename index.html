@@ -3,16 +3,17 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Inventario de Artículos</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
+            margin: 0;
             background-color: #f7f9fc;
             color: #333;
+            padding: 10px;
         }
 
         .header-background {
@@ -30,6 +31,7 @@
             color: #0056b3;
             text-align: center;
             margin: 0;
+            font-size: 24px;
         }
 
         table {
@@ -55,13 +57,15 @@
             color: white;
         }
 
-        input[type="number"] {
-            width: 80px;
+        input[type="number"],
+        input[type="text"] {
+            width: 100%;
             background-color: #e9f5ff;
             color: #333;
             border: 1px solid #ccc;
             padding: 5px;
             border-radius: 4px;
+            box-sizing: border-box;
         }
 
         button {
@@ -82,14 +86,57 @@
         .action-buttons {
             text-align: center;
             margin-top: 15px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
         }
 
         .action-buttons button {
             width: 120px;
+            margin: 5px;
         }
 
         .icon {
             margin-right: 5px;
+        }
+
+        #itemInput {
+            width: 100%;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 600px) {
+            table {
+                font-size: 12px;
+            }
+
+            th,
+            td {
+                padding: 8px;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .action-buttons button {
+                width: 90%;
+                margin: 5px 0;
+            }
+
+            h1 {
+                font-size: 20px;
+            }
+        }
+
+        /* Desactivar zoom */
+        body {
+            overflow-x: hidden;
         }
     </style>
 </head>
@@ -99,19 +146,22 @@
         <h1>Gestión de Artículos</h1>
     </div>
 
-    <form id="itemForm">
-        <label for="itemInput">Ingrese Artículos (código, artículo, cantidad en sistema, cantidad en físico):</label>
-        <textarea id="itemInput" rows="4" required></textarea>
-        <button type="submit"><i class="fas fa-plus icon"></i>Agregar Artículos</button>
-    </form>
-
     <div class="action-buttons">
         <input type="file" id="excelInput" accept=".xlsx" />
         <button onclick="importExcel()"><i class="fas fa-file-import icon"></i>Importar desde Excel</button>
         <button onclick="exportToExcel()"><i class="fas fa-file-export icon"></i>Exportar a Excel</button>
-        <button onclick="clearTable()"><i class="fas fa-trash-alt icon"></i>Limpiar Datos</button>
+        <button onclick="confirmClearTable()"><i class="fas fa-trash-alt icon"></i>Limpiar Datos</button>
         <button onclick="sendToTelegram()"><i class="fas fa-paper-plane icon"></i>Enviar a Telegram</button>
-        <button onclick="loadGoogleSheetsData()"><i class="fas fa-sync icon"></i>Cargar desde Google Sheets</button>
+        <button onclick="confirmLoadGoogleSheetsData()"><i class="fas fa-sync icon"></i>Cargar desde Google Sheets</button>
+    </div>
+
+    <div>
+        <button onclick="clearSearch()">Limpiar Búsqueda</button>
+    </div>
+
+    <div>
+        <label for="searchInput">Buscar por Código o Nombre:</label>
+        <input type="text" id="searchInput" placeholder="Ingrese código o nombre..." onkeyup="searchItem()">
     </div>
 
     <table>
@@ -126,38 +176,48 @@
         <tbody id="itemList">
             <!-- Los artículos se agregarán aquí -->
         </tbody>
+        <tfoot>
+            <tr>
+                <td><input type="text" id="newCode" placeholder="Nuevo Código"></td>
+                <td><input type="text" id="newName" placeholder="Nuevo Artículo"></td>
+                <td><input type="number" id="newQuantitySystem" value="0" min="0"></td>
+                <td><input type="number" id="newQuantityPhysical" value="0" min="0"></td>
+                <td><button onclick="addNewItem()">Agregar Artículo</button></td>
+            </tr>
+        </tfoot>
     </table>
 
     <script>
-        // Token de tu Bot de Telegram
-        const token = '7760071029:AAFF6-SF7SrjIhUtLGVStlkKl1c7XaDr2pk'; // Este es tu token
-        const chatId = '7964118311'; // Este es tu chat ID
-
-        document.getElementById('itemForm').addEventListener('submit', function (event) {
-            event.preventDefault();
-            const itemInput = document.getElementById('itemInput').value;
-            const items = itemInput.split('\n');
-
-            items.forEach(item => {
-                const [code, name, quantitySystem, quantityPhysical] = item.split(',').map(i => i.trim());
-                if (code && name && quantitySystem && quantityPhysical) {
-                    addItemToTable(code, name, quantitySystem, quantityPhysical);
-                }
-            });
-
-            document.getElementById('itemForm').reset();
-            saveDataToLocalStorage();
-        });
+        const token = '7760071029:AAFF6-SF7SrjIhUtLGVStlkKl1c7XaDr2pk';
+        const chatId = '7964118311';
 
         function addItemToTable(code, name, quantitySystem, quantityPhysical) {
             const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${code}</td>
-                <td>${name}</td>
-                <td><input type="number" value="${quantitySystem}" min="0" readonly></td> <!-- Solo lectura -->
-                <td><input type="number" value="${quantityPhysical}" min="0"></td> <!-- Editable -->
-            `;
+            row.innerHTML =
+                `<td>${code}</td>
+                 <td>${name}</td>
+                 <td><input type="number" value="${quantitySystem}" min="0" readonly></td>
+                 <td><input type="number" value="${quantityPhysical}" min="0"></td>`;
             document.getElementById('itemList').appendChild(row);
+        }
+
+        function addNewItem() {
+            const code = document.getElementById('newCode').value.trim();
+            const name = document.getElementById('newName').value.trim();
+            const quantitySystem = parseInt(document.getElementById('newQuantitySystem').value) || 0;
+            const quantityPhysical = parseInt(document.getElementById('newQuantityPhysical').value) || 0;
+
+            if (code && name) {
+                addItemToTable(code, name, quantitySystem, quantityPhysical);
+                // Limpiar los campos de entrada
+                document.getElementById('newCode').value = '';
+                document.getElementById('newName').value = '';
+                document.getElementById('newQuantitySystem').value = 0;
+                document.getElementById('newQuantityPhysical').value = 0;
+                saveDataToLocalStorage();
+            } else {
+                alert("Por favor, complete todos los campos.");
+            }
         }
 
         function saveDataToLocalStorage() {
@@ -175,9 +235,44 @@
 
         function loadDataFromLocalStorage() {
             const data = JSON.parse(localStorage.getItem('inventoryData') || '[]');
-            data.forEach(item => {
-                addItemToTable(item.code, item.name, item.quantitySystem, item.quantityPhysical);
+            if (data.length > 0) {
+                data.forEach(item => {
+                    addItemToTable(item.code, item.name, item.quantitySystem, item.quantityPhysical);
+                });
+            }
+        }
+
+        function searchItem() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const rows = document.querySelectorAll('#itemList tr');
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                const code = cells[0].textContent.toLowerCase();
+                const name = cells[1].textContent.toLowerCase();
+                if (code.includes(searchTerm) || name.includes(searchTerm)) {
+                    row.style.display = ''; // Mostrar fila
+                } else {
+                    row.style.display = 'none'; // Ocultar fila
+                }
             });
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            const rows = document.querySelectorAll('#itemList tr');
+            rows.forEach(row => row.style.display = ''); // Mostrar todas las filas
+        }
+
+        function confirmClearTable() {
+            if (confirm("¿Estás seguro de que deseas limpiar todos los datos?")) {
+                clearTable();
+            }
+        }
+
+        function confirmLoadGoogleSheetsData() {
+            if (confirm("¿Estás seguro de que deseas cargar los datos desde Google Sheets?")) {
+                loadGoogleSheetsData();
+            }
         }
 
         function importExcel() {
@@ -192,10 +287,10 @@
             const reader = new FileReader();
             reader.onload = function (event) {
                 const data = new Uint8Array(event.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
+                const workbook = XLSX.read(data, { type: 'array' });
 
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                const json = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+                const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
 
                 json.forEach(row => {
                     if (row.length >= 4) {
@@ -215,13 +310,13 @@
                 const cells = row.querySelectorAll('td');
                 const quantitySystem = cells[2].querySelector('input').value;
                 const quantityPhysical = cells[3].querySelector('input').value;
-                const difference = quantityPhysical - quantitySystem; // Calculamos la diferencia
+                const difference = quantityPhysical - quantitySystem;
                 return [
                     cells[0].textContent,
                     cells[1].textContent,
                     quantitySystem,
                     quantityPhysical,
-                    difference // Agregamos la diferencia
+                    difference
                 ];
             });
 
@@ -254,7 +349,7 @@
                 const cells = row.querySelectorAll('td');
                 const quantitySystem = cells[2].querySelector('input').value;
                 const quantityPhysical = cells[3].querySelector('input').value;
-                const difference = quantityPhysical - quantitySystem; // Calculamos la diferencia
+                const difference = quantityPhysical - quantitySystem;
                 return {
                     code: cells[0].textContent,
                     name: cells[1].textContent,
@@ -269,7 +364,7 @@
                 item.name,
                 item.quantitySystem,
                 item.quantityPhysical,
-                item.difference // Incluimos la diferencia
+                item.difference
             ]);
 
             const worksheet = XLSX.utils.aoa_to_sheet([["Código", "Artículo", "Cantidad en Sistema", "Cantidad en Físico", "Diferencia"], ...rowsExcel]);
@@ -290,18 +385,17 @@
                 method: "POST",
                 body: formData
             })
-            .then(response => response.json())
-            .then(result => {
-                alert("Archivo enviado a Telegram");
-            })
-            .catch(error => {
-                alert("Error al enviar el archivo a Telegram: " + error);
-            });
+                .then(response => response.json())
+                .then(result => {
+                    alert("Archivo enviado a Telegram");
+                })
+                .catch(error => {
+                    alert("Error al enviar el archivo a Telegram: " + error);
+                });
         }
 
         function clearTable() {
             document.getElementById('itemList').innerHTML = '';
-            localStorage.removeItem('inventoryData');
         }
 
         async function loadGoogleSheetsData() {
@@ -313,14 +407,9 @@
             try {
                 const response = await fetch(url);
                 const data = await response.json();
-                
-                console.log(data); // Imprime la respuesta para verificar
 
                 if (data.values) {
-                    // Limpiar la tabla antes de cargar nuevos datos
                     document.getElementById('itemList').innerHTML = '';
-
-                    // Agregar los datos de Google Sheets a la tabla
                     data.values.forEach(row => {
                         const [code, name, quantitySystem, quantityPhysical] = row.map(cell => cell.trim());
                         if (code && name && quantitySystem && quantityPhysical) {
